@@ -261,8 +261,9 @@ public sealed class DependencyTreeBuilder
     /// </summary>
     /// <param name="projects">The list of projects to analyze.</param>
     /// <param name="packageIdPrefix">Optional prefix to filter packages by package ID.</param>
+    /// <param name="includePureConsumers">If true, includes pure consumer projects (projects that don't produce packages) in the tree for version mismatch analysis.</param>
     /// <returns>A UnifiedDependencyTree containing all package relationships.</returns>
-    public UnifiedDependencyTree BuildUnifiedTree(List<ProjectInfo> projects, string? packageIdPrefix = null)
+    public UnifiedDependencyTree BuildUnifiedTree(List<ProjectInfo> projects, string? packageIdPrefix = null, bool includePureConsumers = false)
     {
         var unifiedTree = InitializeUnifiedTree(projects);
 
@@ -271,6 +272,11 @@ public sealed class DependencyTreeBuilder
         var producersByPackageId = GroupProducersByPackageId(packageProducers);
 
         CreatePackageNodes(unifiedTree, producersByPackageId, packageIdPrefix);
+
+        if (includePureConsumers)
+        {
+            AddPureConsumerProjects(unifiedTree, projects, packageProducers, packageIdPrefix);
+        }
 
         BuildConsumedByRelationships(unifiedTree);
 
@@ -351,6 +357,76 @@ public sealed class DependencyTreeBuilder
             };
 
             unifiedTree.AllPackages[packageId] = node;
+        }
+    }
+
+    /// <summary>
+    /// Adds pure consumer projects (projects that don't produce packages) to the unified tree.
+    /// </summary>
+    /// <param name="unifiedTree">The unified tree to add pure consumer projects to.</param>
+    /// <param name="allProjects">All projects in the workspace.</param>
+    /// <param name="packageProducers">The list of projects that produce packages.</param>
+    /// <param name="packageIdPrefix">Optional prefix to filter consumed packages.</param>
+    private void AddPureConsumerProjects(
+        UnifiedDependencyTree unifiedTree,
+        List<ProjectInfo> allProjects,
+        List<ProjectInfo> packageProducers,
+        string? packageIdPrefix)
+    {
+        // Get projects that don't produce packages
+        var pureConsumers = allProjects
+            .Where(p => string.IsNullOrEmpty(p.PackageId))
+            .ToList();
+
+        OnFeedback?.Invoke($"Found {pureConsumers.Count} pure consumer project(s)");
+
+        foreach (var consumer in pureConsumers)
+        {
+            // Only add if they consume at least one tracked package
+            var relevantPackageReferences = consumer.PackageReferences
+                .Where(pkgRef =>
+                {
+                    var isTracked = unifiedTree.AllPackages.ContainsKey(pkgRef.PackageId);
+                    var matchesPrefix = string.IsNullOrEmpty(packageIdPrefix) ||
+                                       pkgRef.PackageId.StartsWith(packageIdPrefix, StringComparison.OrdinalIgnoreCase);
+                    return isTracked && matchesPrefix;
+                })
+                .ToList();
+
+            if (relevantPackageReferences.Count != 0)
+            {
+                // Create a virtual package node for this consumer
+                var virtualPackageId = $"[Consumer] {Path.GetFileNameWithoutExtension(consumer.FilePath)}";
+
+                var consumedPackages = relevantPackageReferences
+                    .GroupBy(pkgRef => pkgRef.PackageId, StringComparer.OrdinalIgnoreCase)
+                    .Select(g => new PackageConsumption
+                    {
+                        PackageId = g.Key,
+                        Version = g.Select(pr => pr.Version).FirstOrDefault(v => !string.IsNullOrEmpty(v))
+                    })
+                    .ToList();
+
+                var node = new UnifiedPackageNode
+                {
+                    PackageId = virtualPackageId,
+                    ProducerProjects =
+                    [
+                        new ProducerProject
+                        {
+                            ProjectFilePath = consumer.FilePath,
+                            ProjectName = Path.GetFileNameWithoutExtension(consumer.FilePath),
+                            Version = null,
+                            PackageReferences = consumer.PackageReferences
+                        }
+                    ],
+                    ConsumesPackages = consumedPackages
+                };
+
+                unifiedTree.AllPackages[virtualPackageId] = node;
+
+                OnFeedback?.Invoke($"  Added pure consumer: {Path.GetFileNameWithoutExtension(consumer.FilePath)} (consumes {consumedPackages.Count} tracked package(s))");
+            }
         }
     }
 

@@ -1,6 +1,6 @@
-using DoenaSoft.BuildNugetDependencyTree.Models;
 using System.Xml;
 using System.Xml.Linq;
+using DoenaSoft.BuildNugetDependencyTree.Models;
 
 namespace DoenaSoft.BuildNugetDependencyTree;
 
@@ -176,7 +176,7 @@ public sealed class XmlExporter
         }
 
         // Only create the file if there are mismatches
-        if (!rootPackagesWithMismatches.Any())
+        if (rootPackagesWithMismatches.Count == 0)
         {
             OnFeedback?.Invoke($"\nNo version mismatches found. Skipping mismatch XML export.");
             return;
