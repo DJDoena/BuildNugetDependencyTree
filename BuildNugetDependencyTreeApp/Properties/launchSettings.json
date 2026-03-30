@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "BuildNugetDependencyTree": {
+      "commandName": "Project",
+      "commandLineArgs": "d:\\git"
+    }
+  }
+}

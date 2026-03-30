@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="BuildNugetDependencyTreeApp\BuildNugetDependencyTreeApp.csproj" DefaultStartup="true" />
+  <Project Path="BuildNugetDependencyTreeLib\BuildNugetDependencyTreeLib.csproj" />
+</Solution>
