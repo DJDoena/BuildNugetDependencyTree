@@ -1,4 +1,4 @@
-﻿using BuildNugetDependencyTree;
+﻿using DoenaSoft.BuildNugetDependencyTree;
 
 var folderPath = args?.FirstOrDefault();
 
@@ -17,38 +17,40 @@ var projectFiles = Directory.GetFiles(folderPath, "*.csproj", SearchOption.AllDi
 Console.WriteLine($"Found {projectFiles.Length} project file(s)\n");
 
 // Scan and parse projects
-var scanner = new ProjectScanner();
-scanner.OnParseError += (file, ex) =>
-{
-    Console.WriteLine($"Warning: Failed to parse {file}: {ex.Message}");
-};
-scanner.OnNuspecDetected += (message) =>
-{
-    //Console.WriteLine($"Info: {message}");
-};
+ProjectScanner.OnError += (file, ex) => Console.WriteLine($"Warning: Failed to parse {file}: {ex.Message}");
 
-var projects = scanner.ScanFolder(folderPath);
+ProjectScanner.OnFeedback += Console.WriteLine;
+
+var projects = ProjectScanner.ScanFolder(folderPath);
 
 // Build unified dependency tree
 var builder = new DependencyTreeBuilder();
+builder.OnFeedback += Console.WriteLine;
+var unifiedTree = builder.BuildUnifiedTree(projects, "DoenaSoft");
+builder.OnFeedback -= Console.WriteLine;
 
-var unifiedTree = builder.BuildUnifiedTree(projects);
+// Display results - wire up event handler
+var display = new UnifiedTreeDisplay();
+display.OnFeedback += Console.WriteLine;
+display.DisplayUnifiedTree(unifiedTree);
+display.DisplaySummary(unifiedTree);
+display.OnFeedback -= Console.WriteLine;
 
-// Display results
-//var display = new UnifiedTreeDisplay();
-//display.DisplayUnifiedTree(unifiedTree);
-//display.DisplaySummary(unifiedTree);
+var noLeafsTree = DependencyTreeBuilder.FilterLeafProducers(unifiedTree);
 
-var noLeafsTree = builder.FilterLeafProducers(unifiedTree);
-
-// Export to XML
+// Export to XML - wire up event handler
 var xmlExporter = new XmlExporter();
+xmlExporter.OnFeedback += Console.WriteLine;
 
-//xmlExporter.ExportUnifiedToXml(unifiedTree, Path.Combine(folderPath, "NuGetDependencyTree_full.xml"));
+xmlExporter.ExportUnifiedToXml(unifiedTree, Path.Combine(folderPath, "NuGetDependencyTree_full.xml"), null);
 
-//xmlExporter.ExportUnifiedToXml(noLeafsTree, Path.Combine(folderPath, "NuGetDependencyTree_noleafs.xml"), "NoLeafProducers");
+xmlExporter.ExportUnifiedToXml(noLeafsTree, Path.Combine(folderPath, "NuGetDependencyTree_noleafs.xml"), "NoLeafProducers");
+
+// Export version mismatches to separate XML
 
 xmlExporter.ExportMismatchesToXml(noLeafsTree, Path.Combine(folderPath, "NuGetDependencyTree_Mismatches.xml"));
+
+xmlExporter.OnFeedback -= Console.WriteLine;
 
 Console.WriteLine("Press <enter> to exit.");
 Console.ReadLine();

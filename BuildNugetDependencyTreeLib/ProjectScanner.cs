@@ -1,39 +1,83 @@
+using DoenaSoft.BuildNugetDependencyTree.Models;
 using System.Xml.Linq;
 
-namespace BuildNugetDependencyTree;
+namespace DoenaSoft.BuildNugetDependencyTree;
 
-public class ProjectScanner
+/// <summary>
+/// Scans .NET project files (.csproj) to extract package and dependency information.
+/// </summary>
+public static class ProjectScanner
 {
-    public List<ProjectInfo> ScanFolder(string folderPath)
+    /// <summary>
+    /// Scans a folder recursively for all .csproj files and extracts their project information.
+    /// </summary>
+    /// <param name="folderPath">The root folder path to scan for projects.</param>
+    /// <returns>A list of ProjectInfo objects containing information about each project found.</returns>
+    public static List<ProjectInfo> ScanFolder(string folderPath)
     {
         var projectFiles = Directory.GetFiles(folderPath, "*.csproj", SearchOption.AllDirectories);
+
         var projects = new List<ProjectInfo>();
 
         foreach (var projectFile in projectFiles)
         {
             try
             {
-                var projectInfo = this.ParseProject(projectFile);
+                var projectInfo = ParseProject(projectFile);
                 projects.Add(projectInfo);
             }
             catch (Exception ex)
             {
-                OnParseError?.Invoke(projectFile, ex);
+                OnError?.Invoke(projectFile, ex);
             }
         }
 
         return projects;
     }
 
-    public event Action<string, Exception>? OnParseError;
-    public event Action<string>? OnNuspecDetected;
+    /// <summary>
+    /// Event raised when an error occurs during project scanning or parsing.
+    /// </summary>
+    public static event Action<string, Exception>? OnError;
 
-    private ProjectInfo ParseProject(string projectFilePath)
+    /// <summary>
+    /// Event raised to provide feedback messages during scanning operations.
+    /// </summary>
+    public static event Action<string>? OnFeedback;
+
+    /// <summary>
+    /// Parses a .csproj file to extract project information including package generation settings and dependencies.
+    /// </summary>
+    /// <param name="projectFilePath">The file path to the .csproj file.</param>
+    /// <returns>A ProjectInfo object containing the parsed project information.</returns>
+    private static ProjectInfo ParseProject(string projectFilePath)
     {
         var doc = XDocument.Load(projectFilePath);
+
         var projectInfo = new ProjectInfo { FilePath = projectFilePath };
 
-        // Find PackageId or use AssemblyName or project file name as fallback
+        var projectDirectory = Path.GetDirectoryName(projectFilePath)!;
+
+        var (packageId, assemblyName) = ExtractBasicProjectIdentifiers(doc);
+
+        var packageGenerationSettings = ExtractPackageGenerationSettings(doc);
+
+        var (nuspecPackageId, nuspecVersion) = FindNuspecInformation(projectFilePath, projectInfo, projectDirectory, doc);
+
+        SetPackageInformation(projectInfo, projectFilePath, doc, packageId, assemblyName, packageGenerationSettings, nuspecPackageId, nuspecVersion);
+
+        ExtractPackageReferences(doc, projectInfo);
+
+        return projectInfo;
+    }
+
+    /// <summary>
+    /// Extracts the PackageId and AssemblyName from the project file.
+    /// </summary>
+    /// <param name="doc">The XDocument representing the .csproj file.</param>
+    /// <returns>A tuple containing the package ID and assembly name.</returns>
+    private static (string? packageId, string? assemblyName) ExtractBasicProjectIdentifiers(XDocument doc)
+    {
         var packageId = doc.Descendants()
             .Where(e => e.Name.LocalName == "PackageId")
             .Select(e => e.Value)
@@ -44,7 +88,16 @@ public class ProjectScanner
             .Select(e => e.Value)
             .FirstOrDefault();
 
-        // Check if project generates a NuGet package (has GeneratePackageOnBuild or IsPackable)
+        return (packageId, assemblyName);
+    }
+
+    /// <summary>
+    /// Extracts package generation settings from the project file.
+    /// </summary>
+    /// <param name="doc">The XDocument representing the .csproj file.</param>
+    /// <returns>A tuple containing GeneratePackageOnBuild, IsPackable, and PackageProjectUrl values.</returns>
+    private static (string? generatePackage, string? isPackable, string? packageProjectUrl) ExtractPackageGenerationSettings(XDocument doc)
+    {
         var generatePackage = doc.Descendants()
             .Where(e => e.Name.LocalName == "GeneratePackageOnBuild")
             .Select(e => e.Value)
@@ -55,100 +108,173 @@ public class ProjectScanner
             .Select(e => e.Value)
             .FirstOrDefault();
 
-        // Check for PackageProjectUrl as an indicator of NuGet package generation
         var packageProjectUrl = doc.Descendants()
             .Where(e => e.Name.LocalName == "PackageProjectUrl")
             .Select(e => e.Value)
             .FirstOrDefault();
 
-        // Check for .nuspec file in the same directory
-        var projectDirectory = Path.GetDirectoryName(projectFilePath)!;
+        return (generatePackage, isPackable, packageProjectUrl);
+    }
 
-        var (nuspecPackageId, nuspecVersion) = this.GetNuspec(projectFilePath, projectInfo, projectDirectory);
+    /// <summary>
+    /// Searches for a .nuspec file associated with the project in various locations.
+    /// </summary>
+    /// <param name="projectFilePath">The file path to the .csproj file.</param>
+    /// <param name="projectInfo">The ProjectInfo object being populated.</param>
+    /// <param name="projectDirectory">The directory containing the project file.</param>
+    /// <param name="doc">The XDocument representing the .csproj file.</param>
+    /// <returns>A tuple containing the package ID and version from the .nuspec file, if found.</returns>
+    private static (string? packageId, string? version) FindNuspecInformation(string projectFilePath, ProjectInfo projectInfo, string projectDirectory, XDocument doc)
+    {
+        var (nuspecPackageId, nuspecVersion) = GetNuspec(projectFilePath, projectInfo, projectDirectory);
 
         if (nuspecPackageId == null)
         {
-            var parentDir = Directory.GetParent(projectDirectory);
-
-            if (parentDir != null)
-            {
-                var solutionFiles = Directory.GetFiles(parentDir.FullName, "*.sln", SearchOption.TopDirectoryOnly)
-                    .Concat(Directory.GetFiles(parentDir.FullName, "*.slnx", SearchOption.TopDirectoryOnly))
-                    .ToArray();
-
-                var fullProjectFilePath = Path.GetFullPath(projectFilePath);
-
-                var fullParentDirPath = Path.GetFullPath(parentDir.FullName);
-
-                var relativeProjectFilePath = fullProjectFilePath.Replace(fullParentDirPath, "");
-
-                if (relativeProjectFilePath.StartsWith(Path.DirectorySeparatorChar) || relativeProjectFilePath.StartsWith(Path.AltDirectorySeparatorChar))
-                {
-                    relativeProjectFilePath = relativeProjectFilePath.Substring(1);
-                }
-
-                if (solutionFiles.Any(s => this.SolutionContainsProject(s, relativeProjectFilePath)))
-                {
-                    (nuspecPackageId, nuspecVersion) = this.GetNuspec(projectFilePath, projectInfo, parentDir.FullName);
-                }
-            }
+            (nuspecPackageId, nuspecVersion) = SearchNuspecInParentDirectory(projectFilePath, projectInfo, projectDirectory);
         }
 
-        // Check for NuspecFile property in the project
+        if (nuspecPackageId == null)
+        {
+            (nuspecPackageId, nuspecVersion) = CheckNuspecFileProperty(projectFilePath, projectInfo, projectDirectory, doc);
+        }
+
+        return (nuspecPackageId, nuspecVersion);
+    }
+
+    /// <summary>
+    /// Searches for a .nuspec file in the parent directory if a solution file is present.
+    /// </summary>
+    /// <param name="projectFilePath">The file path to the .csproj file.</param>
+    /// <param name="projectInfo">The ProjectInfo object being populated.</param>
+    /// <param name="projectDirectory">The directory containing the project file.</param>
+    /// <returns>A tuple containing the package ID and version from the .nuspec file, if found.</returns>
+    private static (string? packageId, string? version) SearchNuspecInParentDirectory(string projectFilePath, ProjectInfo projectInfo, string projectDirectory)
+    {
+        var parentDir = Directory.GetParent(projectDirectory);
+        if (parentDir == null)
+        {
+            return (null, null);
+        }
+
+        var solutionFiles = Directory.GetFiles(parentDir.FullName, "*.sln", SearchOption.TopDirectoryOnly)
+            .Concat(Directory.GetFiles(parentDir.FullName, "*.slnx", SearchOption.TopDirectoryOnly))
+            .ToArray();
+
+        var fullProjectFilePath = Path.GetFullPath(projectFilePath);
+        var fullParentDirPath = Path.GetFullPath(parentDir.FullName);
+        var relativeProjectFilePath = fullProjectFilePath.Replace(fullParentDirPath, "");
+
+        if (relativeProjectFilePath.StartsWith(Path.DirectorySeparatorChar) || relativeProjectFilePath.StartsWith(Path.AltDirectorySeparatorChar))
+        {
+            relativeProjectFilePath = relativeProjectFilePath.Substring(1);
+        }
+
+        if (solutionFiles.Any(s => SolutionContainsProject(s, relativeProjectFilePath)))
+        {
+            return GetNuspec(projectFilePath, projectInfo, parentDir.FullName);
+        }
+
+        return (null, null);
+    }
+
+    /// <summary>
+    /// Checks if the project file specifies a NuspecFile property and reads it.
+    /// </summary>
+    /// <param name="projectFilePath">The file path to the .csproj file.</param>
+    /// <param name="projectInfo">The ProjectInfo object being populated.</param>
+    /// <param name="projectDirectory">The directory containing the project file.</param>
+    /// <param name="doc">The XDocument representing the .csproj file.</param>
+    /// <returns>A tuple containing the package ID and version from the .nuspec file, if found.</returns>
+    private static (string? packageId, string? version) CheckNuspecFileProperty(string projectFilePath, ProjectInfo projectInfo, string projectDirectory, XDocument doc)
+    {
         var nuspecFileProperty = doc.Descendants()
             .Where(e => e.Name.LocalName == "NuspecFile")
             .Select(e => e.Value)
             .FirstOrDefault();
 
-        if (!string.IsNullOrEmpty(nuspecFileProperty) && nuspecPackageId == null)
+        if (string.IsNullOrEmpty(nuspecFileProperty))
         {
-            var nuspecPath = Path.Combine(projectDirectory, nuspecFileProperty);
-            if (File.Exists(nuspecPath))
-            {
-                try
-                {
-                    var nuspecDoc = XDocument.Load(nuspecPath);
-                    var ns = nuspecDoc.Root?.GetDefaultNamespace();
-                    nuspecPackageId = nuspecDoc.Descendants(ns + "id").FirstOrDefault()?.Value;
-                    nuspecVersion = nuspecDoc.Descendants(ns + "version").FirstOrDefault()?.Value;
-                    projectInfo.NuspecFilePath = nuspecPath;
-
-                    if (!string.IsNullOrEmpty(nuspecPackageId))
-                    {
-                        var versionInfo = !string.IsNullOrEmpty(nuspecVersion) ? $" (version: {nuspecVersion})" : "";
-                        OnNuspecDetected?.Invoke($"Found .nuspec via NuspecFile property in {projectFilePath}: {Path.GetFileName(nuspecPath)} with package ID: {nuspecPackageId}{versionInfo}");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    OnParseError?.Invoke(nuspecPath, ex);
-                }
-            }
+            return (null, null);
         }
 
-        // Determine if the project generates a package
+        var nuspecPath = Path.Combine(projectDirectory, nuspecFileProperty);
+        if (!File.Exists(nuspecPath))
+        {
+            return (null, null);
+        }
+
+        try
+        {
+            var nuspecDoc = XDocument.Load(nuspecPath);
+            var ns = nuspecDoc.Root?.GetDefaultNamespace();
+            var nuspecPackageId = nuspecDoc.Descendants(ns + "id").FirstOrDefault()?.Value;
+            var nuspecVersion = nuspecDoc.Descendants(ns + "version").FirstOrDefault()?.Value;
+            projectInfo.NuspecFilePath = nuspecPath;
+
+            if (!string.IsNullOrEmpty(nuspecPackageId))
+            {
+                var versionInfo = !string.IsNullOrEmpty(nuspecVersion) ? $" (version: {nuspecVersion})" : "";
+                OnFeedback?.Invoke($"Found .nuspec via NuspecFile property in {projectFilePath}: {Path.GetFileName(nuspecPath)} with package ID: {nuspecPackageId}{versionInfo}");
+            }
+
+            return (nuspecPackageId, nuspecVersion);
+        }
+        catch (Exception ex)
+        {
+            OnError?.Invoke(nuspecPath, ex);
+            return (null, null);
+        }
+    }
+
+    /// <summary>
+    /// Sets the package ID and version information on the ProjectInfo object.
+    /// </summary>
+    /// <param name="projectInfo">The ProjectInfo object to populate.</param>
+    /// <param name="projectFilePath">The file path to the .csproj file.</param>
+    /// <param name="doc">The XDocument representing the .csproj file.</param>
+    /// <param name="packageId">The package ID from the project file.</param>
+    /// <param name="assemblyName">The assembly name from the project file.</param>
+    /// <param name="settings">The package generation settings tuple.</param>
+    /// <param name="nuspecPackageId">The package ID from the .nuspec file, if any.</param>
+    /// <param name="nuspecVersion">The version from the .nuspec file, if any.</param>
+    private static void SetPackageInformation(
+        ProjectInfo projectInfo,
+        string projectFilePath,
+        XDocument doc,
+        string? packageId,
+        string? assemblyName,
+        (string? generatePackage, string? isPackable, string? packageProjectUrl) settings,
+        string? nuspecPackageId,
+        string? nuspecVersion)
+    {
         var generatesPackage =
-            string.Equals(generatePackage, "true", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(isPackable, "true", StringComparison.OrdinalIgnoreCase) ||
-            !string.IsNullOrEmpty(packageProjectUrl) ||
+            string.Equals(settings.generatePackage, "true", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(settings.isPackable, "true", StringComparison.OrdinalIgnoreCase) ||
+            !string.IsNullOrEmpty(settings.packageProjectUrl) ||
             nuspecPackageId != null;
 
-        if (generatesPackage)
+        if (!generatesPackage)
         {
-            // Priority: nuspec ID > csproj PackageId > AssemblyName > project filename
-            projectInfo.PackageId = nuspecPackageId ?? packageId ?? assemblyName ?? Path.GetFileNameWithoutExtension(projectFilePath);
-
-            // Extract version information from csproj
-            var version = doc.Descendants()
-                .Where(e => e.Name.LocalName == "Version" || e.Name.LocalName == "PackageVersion")
-                .Select(e => e.Value)
-                .FirstOrDefault();
-
-            // Priority: nuspec version > csproj version
-            projectInfo.PackageVersion = nuspecVersion ?? version;
+            return;
         }
 
-        // Find all PackageReference elements with versions
+        projectInfo.PackageId = nuspecPackageId ?? packageId ?? assemblyName ?? Path.GetFileNameWithoutExtension(projectFilePath);
+
+        var csprojVersion = doc.Descendants()
+            .Where(e => e.Name.LocalName == "Version" || e.Name.LocalName == "PackageVersion")
+            .Select(e => e.Value)
+            .FirstOrDefault();
+
+        projectInfo.PackageVersion = nuspecVersion ?? csprojVersion;
+    }
+
+    /// <summary>
+    /// Extracts all PackageReference elements from the project file.
+    /// </summary>
+    /// <param name="doc">The XDocument representing the .csproj file.</param>
+    /// <param name="projectInfo">The ProjectInfo object to populate with package references.</param>
+    private static void ExtractPackageReferences(XDocument doc, ProjectInfo projectInfo)
+    {
         var packageReferences = doc.Descendants()
             .Where(e => e.Name.LocalName == "PackageReference")
             .Select(e => new PackageReference
@@ -160,18 +286,29 @@ public class ProjectScanner
             .ToList();
 
         projectInfo.PackageReferences = packageReferences;
-
-        return projectInfo;
     }
 
-    private bool SolutionContainsProject(string solution, string relativeProjectFilePath)
+    /// <summary>
+    /// Checks if a solution file contains a reference to a specific project.
+    /// </summary>
+    /// <param name="solution">The path to the solution file (.sln or .slnx).</param>
+    /// <param name="relativeProjectFilePath">The relative path to the project file.</param>
+    /// <returns>True if the solution contains the project, otherwise false.</returns>
+    private static bool SolutionContainsProject(string solution, string relativeProjectFilePath)
     {
         var contains = File.ReadAllText(solution).Contains($"\"{relativeProjectFilePath}\"");
 
         return contains;
     }
 
-    private (string? packageId, string? version) GetNuspec(string projectFilePath, ProjectInfo projectInfo, string nuspecSearchDir)
+    /// <summary>
+    /// Searches for and reads a .nuspec file in the specified directory.
+    /// </summary>
+    /// <param name="projectFilePath">The file path to the .csproj file (for logging purposes).</param>
+    /// <param name="projectInfo">The ProjectInfo object to update with nuspec file path.</param>
+    /// <param name="nuspecSearchDir">The directory to search for .nuspec files.</param>
+    /// <returns>A tuple containing the package ID and version from the .nuspec file, if found.</returns>
+    private static (string? packageId, string? version) GetNuspec(string projectFilePath, ProjectInfo projectInfo, string nuspecSearchDir)
     {
         var nuspecFiles = Directory.GetFiles(nuspecSearchDir, "*.nuspec", SearchOption.TopDirectoryOnly);
         string? nuspecPackageId = null;
@@ -190,12 +327,12 @@ public class ProjectScanner
                 if (!string.IsNullOrEmpty(nuspecPackageId))
                 {
                     var versionInfo = !string.IsNullOrEmpty(nuspecVersion) ? $" (version: {nuspecVersion})" : "";
-                    OnNuspecDetected?.Invoke($"Found .nuspec in {projectFilePath}: {Path.GetFileName(nuspecFiles[0])} with package ID: {nuspecPackageId}{versionInfo}");
+                    OnFeedback?.Invoke($"Found .nuspec in {projectFilePath}: {Path.GetFileName(nuspecFiles[0])} with package ID: {nuspecPackageId}{versionInfo}");
                 }
             }
             catch (Exception ex)
             {
-                OnParseError?.Invoke(nuspecFiles[0], ex);
+                OnError?.Invoke(nuspecFiles[0], ex);
             }
         }
 
