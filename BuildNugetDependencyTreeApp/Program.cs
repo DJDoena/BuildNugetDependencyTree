@@ -1,4 +1,7 @@
-﻿using DoenaSoft.BuildNugetDependencyTree;
+﻿using System.Diagnostics;
+using DoenaSoft.BuildNugetDependencyTree;
+using DoenaSoft.BuildNugetDependencyTree.Models;
+using DoenaSoft.ToolBox.Generics;
 
 var folderPath = args?.FirstOrDefault();
 
@@ -12,41 +15,22 @@ while (!Directory.Exists(folderPath))
 Console.WriteLine($"Scanning folder: {folderPath}");
 Console.WriteLine("=".PadRight(80, '='));
 
-// Scan all .csproj files
 var projectFiles = Directory.GetFiles(folderPath, "*.csproj", SearchOption.AllDirectories);
+
 Console.WriteLine($"Found {projectFiles.Length} project file(s)\n");
 
-// Scan and parse projects
 ProjectScanner.OnError += (file, ex) => Console.WriteLine($"Warning: Failed to parse {file}: {ex.Message}");
-
-//ProjectScanner.OnFeedback += Console.WriteLine;
 
 var projects = ProjectScanner.ScanFolder(folderPath);
 
-// Build unified dependency tree
 var builder = new DependencyTreeBuilder();
-//builder.OnFeedback += Console.WriteLine;
-//builder.OnFeedback -= Console.WriteLine;
-
-//// Display results - wire up event handler
-//var display = new UnifiedTreeDisplay();
-//display.OnFeedback += Console.WriteLine;
-//display.DisplayUnifiedTree(unifiedTree);
-//display.DisplaySummary(unifiedTree);
-//display.OnFeedback -= Console.WriteLine;
 
 var fullTree = builder.BuildUnifiedTree(projects, includePureConsumers: true);
 
-var noLeafsTree = DependencyTreeBuilder.FilterLeafProducers(builder.BuildUnifiedTree(projects, packageIdPrefix: "DoenaSoft"));
+var toplLevelNugetMismatches = fullTree.AllPackages.Values.FilterForDirectVersionMismatches("DoenaSoft.", PackageFilter.IncludePackageProducers).ToList();
 
-// Export to XML - wire up event handler
-var xmlExporter = new XmlExporter();
-xmlExporter.OnFeedback += Console.WriteLine;
-//xmlExporter.ExportUnifiedToXml(unifiedTree, Path.Combine(folderPath, "NuGetDependencyTree_full.xml"), null);
-//xmlExporter.ExportUnifiedToXml(noLeafsTree, Path.Combine(folderPath, "NuGetDependencyTree_noleafs.xml"), "NoLeafProducers");
-xmlExporter.ExportMismatchesToXml(fullTree, Path.Combine(folderPath, "NuGetDependencyTree_Mismatches.xml"));
-xmlExporter.ExportMismatchesToXml(noLeafsTree, Path.Combine(folderPath, "NuGetDependencyTree_MismatchesNoLeafs.xml"));
-xmlExporter.OnFeedback -= Console.WriteLine;
+var topLevelNugetMismatchesFileName = "TopLevelNugetMismatches.xml";
 
-//Console.WriteLine("Press <enter> to exit.");
-//Console.ReadLine();
+XmlSerializer<List<UnifiedPackageNode>>.Serialize(topLevelNugetMismatchesFileName, toplLevelNugetMismatches);
+
+Process.Start("explorer.exe", topLevelNugetMismatchesFileName);

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Xml.Serialization;
 
 namespace DoenaSoft.BuildNugetDependencyTree.Models;
 
@@ -26,5 +27,7 @@ public class ProducerProject
     /// <summary>
     /// Gets or sets the list of NuGet packages referenced by this producer project.
     /// </summary>
+    [XmlArray("PackageReferences")]
+    [XmlArrayItem("PackageReference")]
     public List<PackageReference> PackageReferences { get; set; } = [];
 }

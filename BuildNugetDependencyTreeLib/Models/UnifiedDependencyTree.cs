@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Xml.Serialization;
 
 namespace DoenaSoft.BuildNugetDependencyTree.Models;
 
@@ -11,11 +12,15 @@ public class UnifiedDependencyTree
     /// <summary>
     /// Gets or sets the list of root packages that don't depend on other internal packages.
     /// </summary>
+    [XmlArray("RootPackages")]
+    [XmlArrayItem("RootPackage")]
     public List<UnifiedPackageNode> RootPackages { get; set; } = [];
 
     /// <summary>
     /// Gets or sets the dictionary of all packages indexed by package ID.
     /// </summary>
+    [XmlArray("AllPackages")]
+    [XmlArrayItem("AllPackage")]
     public Dictionary<string, UnifiedPackageNode> AllPackages { get; set; } = [];
 
     /// <summary>

@@ -9,6 +9,10 @@
 	</PropertyGroup>
 
 	<ItemGroup>
+	  <PackageReference Include="DoenaSoft.ToolBox" Version="3.0.4" />
+	</ItemGroup>
+
+	<ItemGroup>
 		<ProjectReference Include="..\BuildNugetDependencyTreeLib\BuildNugetDependencyTreeLib.csproj" />
 	</ItemGroup>
 

@@ -1,121 +1,121 @@
-using DoenaSoft.BuildNugetDependencyTree.Models;
+//using DoenaSoft.BuildNugetDependencyTree.Models;
 
-namespace DoenaSoft.BuildNugetDependencyTree;
+//namespace DoenaSoft.BuildNugetDependencyTree;
 
-/// <summary>
-/// Displays dependency tree information to the console or output stream.
-/// </summary>
-public sealed class DependencyTreeDisplay
-{
-    /// <summary>
-    /// Event raised to write a line of output during display operations.
-    /// </summary>
-    public event Action<string>? OnWriteLine;
+///// <summary>
+///// Displays dependency tree information to the console or output stream.
+///// </summary>
+//public sealed class DependencyTreeDisplay
+//{
+//    /// <summary>
+//    /// Event raised to write a line of output during display operations.
+//    /// </summary>
+//    public event Action<string>? OnWriteLine;
 
-    /// <summary>
-    /// Displays all projects that generate NuGet packages with their sources (.csproj or .nuspec).
-    /// </summary>
-    /// <param name="tree">The dependency tree containing package nodes.</param>
-    /// <param name="projects">The list of all projects for additional information lookup.</param>
-    public void DisplayPackageProducers(DependencyTree tree, List<ProjectInfo> projects)
-    {
-        OnWriteLine?.Invoke("\n=== PROJECTS THAT GENERATE NUGET PACKAGES ===\n");
-        foreach (var rootNode in tree.PackageNodes)
-        {
-            var projectInfo = projects.First(p => p.FilePath == rootNode.ProjectFilePath);
-            var source = !string.IsNullOrEmpty(projectInfo.NuspecFilePath)
-                ? $"(via .nuspec: {Path.GetFileName(projectInfo.NuspecFilePath)})"
-                : "(via .csproj)";
+//    /// <summary>
+//    /// Displays all projects that generate NuGet packages with their sources (.csproj or .nuspec).
+//    /// </summary>
+//    /// <param name="tree">The dependency tree containing package nodes.</param>
+//    /// <param name="projects">The list of all projects for additional information lookup.</param>
+//    public void DisplayPackageProducers(DependencyTree tree, List<ProjectInfo> projects)
+//    {
+//        OnWriteLine?.Invoke("\n=== PROJECTS THAT GENERATE NUGET PACKAGES ===\n");
+//        foreach (var rootNode in tree.PackageNodes)
+//        {
+//            var projectInfo = projects.First(p => p.FilePath == rootNode.ProjectFilePath);
+//            var source = !string.IsNullOrEmpty(projectInfo.NuspecFilePath)
+//                ? $"(via .nuspec: {Path.GetFileName(projectInfo.NuspecFilePath)})"
+//                : "(via .csproj)";
 
-            OnWriteLine?.Invoke($"📦 {rootNode.PackageId} {source}");
-            OnWriteLine?.Invoke($"   Project: {Path.GetFileName(rootNode.ProjectFilePath)}");
-            OnWriteLine?.Invoke($"   Path: {rootNode.ProjectFilePath}");
-            OnWriteLine?.Invoke(string.Empty);
-        }
-    }
+//            OnWriteLine?.Invoke($"📦 {rootNode.PackageId} {source}");
+//            OnWriteLine?.Invoke($"   Project: {Path.GetFileName(rootNode.ProjectFilePath)}");
+//            OnWriteLine?.Invoke($"   Path: {rootNode.ProjectFilePath}");
+//            OnWriteLine?.Invoke(string.Empty);
+//        }
+//    }
 
-    /// <summary>
-    /// Displays the complete dependency tree showing packages and their consumers.
-    /// </summary>
-    /// <param name="tree">The dependency tree to display.</param>
-    public void DisplayDependencyTree(DependencyTree tree)
-    {
-        OnWriteLine?.Invoke("\n=== NUGET PACKAGE DEPENDENCY TREE ===\n");
-        foreach (var rootNode in tree.PackageNodes.Where(n => n.Consumers.Any()))
-        {
-            this.PrintTreeNode(rootNode, 0);
-            OnWriteLine?.Invoke(string.Empty);
-        }
-    }
+//    /// <summary>
+//    /// Displays the complete dependency tree showing packages and their consumers.
+//    /// </summary>
+//    /// <param name="tree">The dependency tree to display.</param>
+//    public void DisplayDependencyTree(DependencyTree tree)
+//    {
+//        OnWriteLine?.Invoke("\n=== NUGET PACKAGE DEPENDENCY TREE ===\n");
+//        foreach (var rootNode in tree.PackageNodes.Where(n => n.Consumers.Any()))
+//        {
+//            this.PrintTreeNode(rootNode, 0);
+//            OnWriteLine?.Invoke(string.Empty);
+//        }
+//    }
 
-    /// <summary>
-    /// Displays a summary of the dependency tree statistics.
-    /// </summary>
-    /// <param name="tree">The dependency tree to summarize.</param>
-    /// <param name="relationshipCount">The total number of dependency relationships.</param>
-    public void DisplaySummary(DependencyTree tree, int relationshipCount)
-    {
-        OnWriteLine?.Invoke("\n=== SUMMARY ===");
-        OnWriteLine?.Invoke($"Total projects scanned: {tree.TotalProjects}");
-        OnWriteLine?.Invoke($"Projects generating NuGet packages: {tree.PackageNodes.Count}");
-        OnWriteLine?.Invoke($"Projects with package references: {tree.ProjectsWithDependencies}");
-        OnWriteLine?.Invoke($"Total dependency relationships: {relationshipCount}");
-    }
+//    /// <summary>
+//    /// Displays a summary of the dependency tree statistics.
+//    /// </summary>
+//    /// <param name="tree">The dependency tree to summarize.</param>
+//    /// <param name="relationshipCount">The total number of dependency relationships.</param>
+//    public void DisplaySummary(DependencyTree tree, int relationshipCount)
+//    {
+//        OnWriteLine?.Invoke("\n=== SUMMARY ===");
+//        OnWriteLine?.Invoke($"Total projects scanned: {tree.TotalProjects}");
+//        OnWriteLine?.Invoke($"Projects generating NuGet packages: {tree.PackageNodes.Count}");
+//        OnWriteLine?.Invoke($"Projects with package references: {tree.ProjectsWithDependencies}");
+//        OnWriteLine?.Invoke($"Total dependency relationships: {relationshipCount}");
+//    }
 
-    /// <summary>
-    /// Prints a package node with its producer information and recursively displays its consumers.
-    /// </summary>
-    /// <param name="node">The package node to print.</param>
-    /// <param name="indent">The current indentation level.</param>
-    private void PrintTreeNode(PackageNode node, int indent)
-    {
-        var indentStr = new string(' ', indent * 3);
-        OnWriteLine?.Invoke($"{indentStr}📦 {node.PackageId}");
-        OnWriteLine?.Invoke($"{indentStr}   └─ Generated by: {node.ProjectName}");
+//    /// <summary>
+//    /// Prints a package node with its producer information and recursively displays its consumers.
+//    /// </summary>
+//    /// <param name="node">The package node to print.</param>
+//    /// <param name="indent">The current indentation level.</param>
+//    private void PrintTreeNode(PackageNode node, int indent)
+//    {
+//        var indentStr = new string(' ', indent * 3);
+//        OnWriteLine?.Invoke($"{indentStr}📦 {node.PackageId}");
+//        OnWriteLine?.Invoke($"{indentStr}   └─ Generated by: {node.ProjectName}");
 
-        foreach (var consumer in node.Consumers)
-        {
-            this.PrintConsumerNode(consumer, indent + 2);
-        }
-    }
+//        foreach (var consumer in node.Consumers)
+//        {
+//            this.PrintConsumerNode(consumer, indent + 2);
+//        }
+//    }
 
-    /// <summary>
-    /// Prints a consumer node with its package generation information and transitive consumers.
-    /// </summary>
-    /// <param name="node">The consumer node to print.</param>
-    /// <param name="indent">The current indentation level.</param>
-    private void PrintConsumerNode(ConsumerNode node, int indent)
-    {
-        var indentStr = new string(' ', indent * 3);
-        var label = node.GeneratesPackage
-            ? $"{node.ProjectName} → Generates: {node.GeneratedPackageId}"
-            : node.ProjectName;
+//    /// <summary>
+//    /// Prints a consumer node with its package generation information and transitive consumers.
+//    /// </summary>
+//    /// <param name="node">The consumer node to print.</param>
+//    /// <param name="indent">The current indentation level.</param>
+//    private void PrintConsumerNode(ConsumerNode node, int indent)
+//    {
+//        var indentStr = new string(' ', indent * 3);
+//        var label = node.GeneratesPackage
+//            ? $"{node.ProjectName} → Generates: {node.GeneratedPackageId}"
+//            : node.ProjectName;
 
-        OnWriteLine?.Invoke($"{indentStr}└─ Consumed by: {label}");
+//        OnWriteLine?.Invoke($"{indentStr}└─ Consumed by: {label}");
 
-        foreach (var transitive in node.TransitiveConsumers)
-        {
-            this.PrintTransitiveNode(transitive, indent + 1);
-        }
-    }
+//        foreach (var transitive in node.TransitiveConsumers)
+//        {
+//            this.PrintTransitiveNode(transitive, indent + 1);
+//        }
+//    }
 
-    /// <summary>
-    /// Recursively prints a transitive consumer node with its package generation information.
-    /// </summary>
-    /// <param name="node">The transitive consumer node to print.</param>
-    /// <param name="indent">The current indentation level.</param>
-    private void PrintTransitiveNode(ConsumerNode node, int indent)
-    {
-        var indentStr = new string(' ', indent * 3);
-        var label = node.GeneratesPackage
-            ? $"{node.ProjectName} → Generates: {node.GeneratedPackageId}"
-            : node.ProjectName;
+//    /// <summary>
+//    /// Recursively prints a transitive consumer node with its package generation information.
+//    /// </summary>
+//    /// <param name="node">The transitive consumer node to print.</param>
+//    /// <param name="indent">The current indentation level.</param>
+//    private void PrintTransitiveNode(ConsumerNode node, int indent)
+//    {
+//        var indentStr = new string(' ', indent * 3);
+//        var label = node.GeneratesPackage
+//            ? $"{node.ProjectName} → Generates: {node.GeneratedPackageId}"
+//            : node.ProjectName;
 
-        OnWriteLine?.Invoke($"{indentStr}└─ Transitively consumed by: {label}");
+//        OnWriteLine?.Invoke($"{indentStr}└─ Transitively consumed by: {label}");
 
-        foreach (var transitive in node.TransitiveConsumers)
-        {
-            this.PrintTransitiveNode(transitive, indent + 1);
-        }
-    }
-}
+//        foreach (var transitive in node.TransitiveConsumers)
+//        {
+//            this.PrintTransitiveNode(transitive, indent + 1);
+//        }
+//    }
+//}

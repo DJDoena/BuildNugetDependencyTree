@@ -17,4 +17,7 @@ public class PackageConsumption
     /// Gets or sets the version of the consumed package.
     /// </summary>
     public string? Version { get; set; }
+
+    /// <summary />
+    public string? ExpectedVersion { get; set; }
 }
