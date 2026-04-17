@@ -130,12 +130,22 @@ public static class ProjectScanner
 
         if (nuspecPackageId == null)
         {
+            (nuspecPackageId, nuspecVersion) = CheckNuspecFileProperty(projectFilePath, projectInfo, projectDirectory, doc);
+        }
+
+        if (nuspecPackageId == null)
+        {
+            (nuspecPackageId, nuspecVersion) = SearchNuspecInSolutionItems(projectFilePath, projectInfo, projectDirectory);
+        }
+
+        if (nuspecPackageId == null)
+        {
             (nuspecPackageId, nuspecVersion) = SearchNuspecInParentDirectory(projectFilePath, projectInfo, projectDirectory);
         }
 
         if (nuspecPackageId == null)
         {
-            (nuspecPackageId, nuspecVersion) = CheckNuspecFileProperty(projectFilePath, projectInfo, projectDirectory, doc);
+            (nuspecPackageId, nuspecVersion) = CheckDirectoryBuildProps(projectFilePath, projectInfo, projectDirectory);
         }
 
         return (nuspecPackageId, nuspecVersion);
@@ -337,5 +347,143 @@ public static class ProjectScanner
         }
 
         return (nuspecPackageId, nuspecVersion);
+    }
+
+    /// <summary>
+    /// Searches for .nuspec files listed as Solution Items in the solution file.
+    /// </summary>
+    /// <param name="projectFilePath">The file path to the .csproj file.</param>
+    /// <param name="projectInfo">The ProjectInfo object being populated.</param>
+    /// <param name="projectDirectory">The directory containing the project file.</param>
+    /// <returns>A tuple containing the package ID and version from the .nuspec file, if found.</returns>
+    private static (string? packageId, string? version) SearchNuspecInSolutionItems(string projectFilePath, ProjectInfo projectInfo, string projectDirectory)
+    {
+        var solutionDir = FindSolutionDirectory(projectDirectory);
+        if (solutionDir == null)
+        {
+            return (null, null);
+        }
+
+        var solutionFiles = Directory.GetFiles(solutionDir, "*.sln", SearchOption.TopDirectoryOnly)
+            .Concat(Directory.GetFiles(solutionDir, "*.slnx", SearchOption.TopDirectoryOnly))
+            .ToArray();
+
+        foreach (var solutionFile in solutionFiles)
+        {
+            try
+            {
+                var solutionContent = File.ReadAllText(solutionFile);
+                var nuspecMatches = System.Text.RegularExpressions.Regex.Matches(solutionContent, @"([^\s""]+\.nuspec)\s*=\s*\1");
+
+                foreach (System.Text.RegularExpressions.Match match in nuspecMatches)
+                {
+                    var nuspecFileName = match.Groups[1].Value;
+                    var nuspecPath = Path.Combine(solutionDir, nuspecFileName);
+
+                    if (File.Exists(nuspecPath))
+                    {
+                        try
+                        {
+                            var nuspecDoc = XDocument.Load(nuspecPath);
+                            var ns = nuspecDoc.Root?.GetDefaultNamespace();
+                            var nuspecPackageId = nuspecDoc.Descendants(ns + "id").FirstOrDefault()?.Value;
+                            var nuspecVersion = nuspecDoc.Descendants(ns + "version").FirstOrDefault()?.Value;
+                            projectInfo.NuspecFilePath = nuspecPath;
+
+                            if (!string.IsNullOrEmpty(nuspecPackageId))
+                            {
+                                var versionInfo = !string.IsNullOrEmpty(nuspecVersion) ? $" (version: {nuspecVersion})" : "";
+                                OnFeedback?.Invoke($"Found .nuspec via Solution Items in {Path.GetFileName(solutionFile)}: {nuspecFileName} with package ID: {nuspecPackageId}{versionInfo}");
+                                return (nuspecPackageId, nuspecVersion);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            OnError?.Invoke(nuspecPath, ex);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                OnError?.Invoke(solutionFile, ex);
+            }
+        }
+
+        return (null, null);
+    }
+
+    /// <summary>
+    /// Searches for Directory.Build.props file walking up the directory tree.
+    /// </summary>
+    /// <param name="projectFilePath">The file path to the .csproj file.</param>
+    /// <param name="projectInfo">The ProjectInfo object being populated.</param>
+    /// <param name="projectDirectory">The directory containing the project file.</param>
+    /// <returns>A tuple containing the package ID and version from Directory.Build.props, if found.</returns>
+    private static (string? packageId, string? version) CheckDirectoryBuildProps(string projectFilePath, ProjectInfo projectInfo, string projectDirectory)
+    {
+        var currentDir = new DirectoryInfo(projectDirectory);
+
+        while (currentDir != null)
+        {
+            var propsPath = Path.Combine(currentDir.FullName, "Directory.Build.props");
+            if (File.Exists(propsPath))
+            {
+                try
+                {
+                    var propsDoc = XDocument.Load(propsPath);
+                    var packageId = propsDoc.Descendants()
+                        .Where(e => e.Name.LocalName == "PackageId")
+                        .Select(e => e.Value)
+                        .FirstOrDefault();
+
+                    var version = propsDoc.Descendants()
+                        .Where(e => e.Name.LocalName == "Version" || e.Name.LocalName == "PackageVersion" || e.Name.LocalName == "VersionPrefix")
+                        .Select(e => e.Value)
+                        .FirstOrDefault();
+
+                    if (!string.IsNullOrEmpty(packageId) || !string.IsNullOrEmpty(version))
+                    {
+                        var versionInfo = !string.IsNullOrEmpty(version) ? $" (version: {version})" : "";
+                        OnFeedback?.Invoke($"Found package metadata in Directory.Build.props at {propsPath}: PackageId: {packageId}{versionInfo}");
+                        return (packageId, version);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    OnError?.Invoke(propsPath, ex);
+                }
+            }
+
+            currentDir = currentDir.Parent;
+        }
+
+        return (null, null);
+    }
+
+    /// <summary>
+    /// Finds the solution directory by walking up from the project directory.
+    /// </summary>
+    /// <param name="projectDirectory">The directory containing the project file.</param>
+    /// <returns>The path to the solution directory, or null if not found.</returns>
+    private static string? FindSolutionDirectory(string projectDirectory)
+    {
+        var currentDir = new DirectoryInfo(projectDirectory);
+
+        while (currentDir != null)
+        {
+            var solutionFiles = Directory.GetFiles(currentDir.FullName, "*.sln", SearchOption.TopDirectoryOnly)
+                .Concat(Directory.GetFiles(currentDir.FullName, "*.slnx", SearchOption.TopDirectoryOnly))
+                .ToArray();
+
+            if (solutionFiles.Length > 0)
+            {
+                return currentDir.FullName;
+            }
+
+            currentDir = currentDir.Parent;
+        }
+
+        return null;
     }
 }
